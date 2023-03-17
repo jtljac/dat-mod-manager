@@ -10,9 +10,13 @@ pub fn config_dir() -> PathBuf {
             panic!("Failed to access config directory");
         }
         Some(proj_dirs) => {
-            return proj_dirs.config_dir().to_path_buf()
+            proj_dirs.config_dir().to_path_buf()
         }
     }
+}
+
+pub fn instance_dir() -> PathBuf {
+    config_dir().join("instances/")
 }
 
 pub fn data_dir() -> PathBuf {
