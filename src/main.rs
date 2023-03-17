@@ -5,23 +5,28 @@ use clap::{Arg, ArgAction, ArgGroup, ArgMatches, command, Command, Parser, Subco
 
 use dat_mod_manager::gui_application::gui_application;
 use dat_mod_manager::constants;
+use dat_mod_manager::mod_info::instance::list_instances;
 
 fn main() -> ExitCode {
     let cli = cmd().get_matches();
 
-    match cli.subcommand() {
-        Some(("list-instances", sub_matches)) => {
-            let instance_path = constants::config_dir().join("/instances");
-            if !instance_path.exists() {
-                println!("No instances")
+    if let Some(subcommand) = cli.subcommand() {
+        match subcommand {
+            ("list-instances", _) => {
+                let instances = list_instances();
+
+                if instances.is_empty() {
+                    println!("There are no instances");
+                } else {
+                    let instance_string: String = instances.iter().map(|(key, instance)| key.to_string() + "\t" + instance.game() + "\n").collect();
+                    println!("{instance_string}");
+                }
             }
-
-
+            _ => {
+                panic!("Unknown Subcommand")
+            }
         }
-        _ => {}
-    }
 
-    if cli.get_flag("cli") {
         ExitCode::SUCCESS
     } else {
         gui_application()
@@ -30,9 +35,6 @@ fn main() -> ExitCode {
 
 fn cmd() -> Command {
     command!()
-        .arg(Arg::new("cli")
-            .long("cli")
-            .action(ArgAction::SetTrue))
         .subcommand(
             Command::new("list-instances")
                 .about("List all the instances")

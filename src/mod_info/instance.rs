@@ -1,30 +1,54 @@
+use std::collections::HashMap;
+use std::error::Error;
+use std::fs;
+use serde::{Serialize, Deserialize, Serializer};
+
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use crate::constants;
 use crate::mod_info::game::Game;
 use crate::mod_info::mod_list::ModList;
 
-struct Instance {
+/* ========================================= */
+/* Instance                                  */
+/* ========================================= */
+
+#[derive(Deserialize, Serialize)]
+pub struct Instance {
     base_path: PathBuf,
     mods_path: PathBuf,
     downloads_path: PathBuf,
     overwrite_path: PathBuf,
     profile_path: PathBuf,
-    game: Game,
-    mod_list: ModList
+
+    game: String,
+
+    #[serde(skip)]
+    #[serde(default = "ModList::new")]
+    mod_list: ModList,
 }
 
 impl Instance {
-    pub fn new(base_path: PathBuf, mods_path: PathBuf, downloads_path: PathBuf, overwrite_path: PathBuf, profile_path: PathBuf, game: Game, mod_list: ModList) -> Self {
-        Self { base_path, mods_path, downloads_path, overwrite_path, profile_path, game, mod_list }
+    pub fn new(base_path: PathBuf, mods_path: PathBuf, downloads_path: PathBuf, overwrite_path: PathBuf, profile_path: PathBuf, game: &str) -> Self {
+        Self { base_path, mods_path, downloads_path, overwrite_path, profile_path, game: game.to_string(), mod_list: ModList::new() }
     }
 
-    pub fn new_default(base_path: PathBuf, game: Game, ) -> Self {
+    fn from_path(path: &Path) -> Result<Instance, Box<dyn Error>> {
+        let toml_content = fs::read_to_string(path)?;
+
+        let instance = toml::from_str(&toml_content)?;
+
+        Ok(instance)
+    }
+
+    pub fn new_default(base_path: PathBuf, game: &str) -> Self {
         Self {
             base_path,
-            mods_path: PathBuf::from("./mods"),
-            downloads_path: PathBuf::from("./downloads"),
-            overwrite_path: PathBuf::from("./overwrite"),
-            profile_path: PathBuf::from("./profiles"),
-            game,
+            mods_path: PathBuf::from("mods"),
+            downloads_path: PathBuf::from("downloads"),
+            overwrite_path: PathBuf::from("overwrite"),
+            profile_path: PathBuf::from("profiles"),
+            game: game.to_string(),
             mod_list: ModList::new()
         }
     }
@@ -64,4 +88,43 @@ impl Instance {
             self.base_path.join(self.profile_path.as_path())
         }
     }
+
+    pub fn game(&self) -> &str {
+        &self.game
+    }
+}
+
+/* ========================================= */
+/* Util                                      */
+/* ========================================= */
+
+pub fn list_instances() -> HashMap<String, Instance> {
+    let instance_path = constants::instance_dir();
+    let mut profiles = HashMap::new();
+
+    if !instance_path.exists() {
+        return profiles
+    }
+
+    let files = fs::read_dir(&instance_path).unwrap_or_else(|err| {
+        let path_string = instance_path.display();
+        panic!("Failed to access instance folder at {path_string}\nError: {err}")
+    });
+
+    for path in files {
+        let file = path.unwrap().path();
+        if file.is_file() {
+            let instance_name = file.file_stem().unwrap().to_str().unwrap();
+            let instance_file = match Instance::from_path(file.as_path()) {
+                Ok(file) => file,
+                Err(err) => {
+                    println!("Failed to load instance file for instance: {instance_name}\nError: {err}");
+                    continue;
+                }
+            };
+            profiles.insert(instance_name.to_string(), instance_file);
+        }
+    }
+
+    profiles
 }

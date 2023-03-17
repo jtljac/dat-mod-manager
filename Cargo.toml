@@ -6,10 +6,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap = {version = "4.1.8", features = ["cargo"]}
+clap = { version = "4.1.8", features = ["cargo"] }
 directories = "4.0.1"
 gtk = { version = "0.6.2", package = "gtk4", features = ["v4_10"] }
 nix = "0.26.2"
 once_cell = "1.17.1"
-serde = "1.0.156"
+serde = { version = "1.0.156", features = ["derive"] }
 toml = "0.7.3"
