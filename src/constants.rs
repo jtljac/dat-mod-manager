@@ -15,6 +15,10 @@ pub fn config_dir() -> PathBuf {
     }
 }
 
+pub fn config_file_path() -> PathBuf {
+    config_dir().join("config.toml")
+}
+
 pub fn instance_dir() -> PathBuf {
     config_dir().join("instances/")
 }

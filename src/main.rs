@@ -5,23 +5,20 @@ use clap::{Arg, ArgAction, ArgGroup, ArgMatches, command, Command, Parser, Subco
 
 use dat_mod_manager::gui_application::gui_application;
 use dat_mod_manager::constants;
+use dat_mod_manager::manager_config::ManagerConfig;
 use dat_mod_manager::mod_info::instance::list_instances;
+
+mod util;
 
 fn main() -> ExitCode {
     let cli = cmd().get_matches();
 
+    util::ensure_config_dir();
+    let config = ManagerConfig::load_or_create();
+
     if let Some(subcommand) = cli.subcommand() {
         match subcommand {
-            ("list-instances", _) => {
-                let instances = list_instances();
-
-                if instances.is_empty() {
-                    println!("There are no instances");
-                } else {
-                    let instance_string: String = instances.iter().map(|(key, instance)| key.to_string() + "\t" + instance.game() + "\n").collect();
-                    println!("{instance_string}");
-                }
-            }
+            ("list-instances", _) => list_instances_command(),
             _ => {
                 panic!("Unknown Subcommand")
             }
@@ -31,6 +28,22 @@ fn main() -> ExitCode {
     } else {
         gui_application()
     }
+}
+
+fn list_instances_command() -> ExitCode {
+    let instances = list_instances();
+
+    if instances.is_empty() {
+        println!("There are no instances");
+    } else {
+        let instance_string: String = instances.iter().map(|(key,     instance)| {
+            let selected = if key == config.
+            key.to_string() + "\t" + instance.game() + "\n"
+        }).collect();
+        println!("{instance_string}");
+    }
+
+    ExitCode::SUCCESS
 }
 
 fn cmd() -> Command {
