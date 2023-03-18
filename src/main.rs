@@ -18,13 +18,11 @@ fn main() -> ExitCode {
 
     if let Some(subcommand) = cli.subcommand() {
         match subcommand {
-            ("list-instances", _) => list_instances_command(),
+            ("list-instances", _) => return list_instances_command(),
             _ => {
                 panic!("Unknown Subcommand")
             }
-        }
-
-        ExitCode::SUCCESS
+        };
     } else {
         gui_application()
     }
@@ -36,10 +34,18 @@ fn list_instances_command() -> ExitCode {
     if instances.is_empty() {
         println!("There are no instances");
     } else {
-        let instance_string: String = instances.iter().map(|(key,     instance)| {
-            let selected = if key == config.
-            key.to_string() + "\t" + instance.game() + "\n"
-        }).collect();
+        let instance_string: String = instances.iter()
+            .map(|(key,     instance)| {
+                let config = ManagerConfig::load_or_create();
+                let selected = if key == &config.default_instance {
+                    "*"
+                } else {
+                    ""
+                };
+                format!("{key}{selected}\t{}\n", instance.game())
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
         println!("{instance_string}");
     }
 
