@@ -1,5 +1,5 @@
 pub mod constants;
-
+pub mod errors;
 pub mod ipc;
 
 pub mod plugin;
