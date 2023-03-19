@@ -1,4 +1,5 @@
 use std::{fs, io};
+use error_chain::ChainedError;
 
 use serde::{Deserialize, Serialize};
 
@@ -63,6 +64,22 @@ impl ManagerConfig {
 
                 config
             }
+        }
+    }
+
+    pub fn save(&self) -> Result<()> {
+        let config_path = constants::config_file_path();
+
+        let config_string = toml::to_string(self)?;
+
+        fs::write(config_path, config_string)?;
+
+        Ok(())
+    }
+
+    pub fn quick_save(&self) {
+        if let Err(ref e) = self.save() {
+            eprintln!("Failed to save config:\n{e}");
         }
     }
 }
