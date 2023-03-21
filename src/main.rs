@@ -19,6 +19,8 @@ fn main() -> ExitCode {
     if let Some(subcommand) = cli.subcommand() {
         return match subcommand {
             ("list-instances", _) => list_instances_command(),
+            ("set-default-instance", matches) =>
+                set_default_instance_command(matches.get_one::<String>("INSTANCE").unwrap()),
             _ => {
                 println!("Unknown Subcommand");
                 ExitCode::FAILURE
@@ -29,6 +31,30 @@ fn main() -> ExitCode {
     } else {
         gui_application()
     }
+}
+
+fn set_default_instance_command(instance_name: &str) -> ExitCode {
+    let instances = list_instances();
+    let mut config = ManagerConfig::load_or_create();
+
+    if instance_name != "none" && !instances.contains_key(instance_name) {
+        println!("Unknown instance: {instance_name}");
+        return ExitCode::FAILURE
+    }
+
+    config.default_instance = if instance_name == "none" {""} else {instance_name}.to_string();
+    if let Err(err) = config.save() {
+        println!("Failed to save new default instance:\n{err}");
+        return ExitCode::FAILURE
+    }
+
+    if instance_name == "none" {
+        println!("Successfully cleared default instance")
+    } else {
+        println!("Successfully set default instance to {instance_name}");
+    }
+
+    ExitCode::SUCCESS
 }
 
 fn list_instances_command() -> ExitCode {
@@ -66,10 +92,11 @@ fn cmd() -> Command {
                 .about("Set the default instance")
                 .long_about("Set the default instance. This is the instance that gets used when the \
                              downloader cannot figure out which instance to download a mod to. \
-                             Pass none to be prompted instead")
-                .arg(Arg::new("INSTANCE")
+                             Pass none to be prompted everytime instead")
+                .arg(
+                    Arg::new("INSTANCE")
                     .allow_hyphen_values(true)
-                    .default_value("none")
+                        .required(true)
                 )
         )
 }
