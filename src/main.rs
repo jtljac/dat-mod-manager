@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use clap::{Arg, ArgAction, ArgGroup, ArgMatches, command, Command, Parser, Subcommand};
+use clap::{Arg, ArgAction, ArgGroup, ArgMatches, command, Command, Parser, Subcommand, value_parser};
 
 use dat_mod_manager::gui_application::gui_application;
 use dat_mod_manager::constants;
@@ -21,6 +21,15 @@ fn main() -> ExitCode {
             ("list-instances", _) => list_instances_command(),
             ("set-default-instance", matches) =>
                 set_default_instance_command(matches.get_one::<String>("INSTANCE").unwrap()),
+            ("create-instance", matches) => {
+                create_instance_command(matches.get_one::<String>("NAME"),
+                                        matches.get_one::<PathBuf>("BASE_PATH"),
+                                        matches.get_one::<PathBuf>("MODS_PATH"),
+                                        matches.get_one::<PathBuf>("DOWNLOADS_PATH"),
+                                        matches.get_one::<PathBuf>("OVERWRITE_PATH"),
+                                        matches.get_one::<PathBuf>("PROFILES_PATH"),
+                                        matches.get_one::<bool>("DEFAULT"))
+            }
             _ => {
                 println!("Unknown Subcommand");
                 ExitCode::FAILURE
@@ -95,8 +104,61 @@ fn cmd() -> Command {
                              Pass none to be prompted everytime instead")
                 .arg(
                     Arg::new("INSTANCE")
-                    .allow_hyphen_values(true)
+                        .allow_hyphen_values(true)
                         .required(true)
+                )
+        )
+        .subcommand(
+            Command::new("create-instance")
+                .about("Create a new instance")
+                .after_help("For the paths (besides the BASE_PATH), relative paths will be relative to the BASE_PATH, absolute paths will work as expected\n\
+                Any arguments or options not provided will be prompted for")
+                .arg(
+                    Arg::new("NAME")
+                        .allow_hyphen_values(true)
+                        .help("The name of the new profile")
+                )
+                .arg(
+                    Arg::new("BASE_PATH")
+                        .long("base-path")
+                        .short('b')
+                        .value_parser(value_parser!(std::path::PathBuf))
+                        .help("The base directory of the instance")
+                )
+                .arg(
+                    Arg::new("MODS_PATH")
+                        .long("mods-path")
+                        .short('m')
+                        .value_parser(value_parser!(std::path::PathBuf))
+                        .help("The directory in which mods are stored")
+                )
+                .arg(
+                    Arg::new("DOWNLOADS_PATH")
+                        .long("downloads-path")
+                        .short('d')
+                        .value_parser(value_parser!(std::path::PathBuf))
+                        .help("The directory in which mods are downloaded to")
+                )
+                .arg(
+                    Arg::new("OVERWRITE_PATH")
+                        .long("overwrite-path")
+                        .short('o')
+                        .value_parser(value_parser!(std::path::PathBuf))
+                        .help("The directory in which runtime changes are written to")
+                )
+                .arg(
+                    Arg::new("PROFILE_PATH")
+                        .long("profile-path")
+                        .short('p')
+                        .value_parser(value_parser!(std::path::PathBuf))
+                        .help("The directory in which profile information is stored")
+                )
+                .arg(
+                    Arg::new("DEFAULT")
+                        .long("default")
+                        .short('D')
+                        .action(ArgAction::SetTrue)
+                        .help("Set the newly created profile as the default profile")
                 )
         )
 }
