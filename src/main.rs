@@ -14,15 +14,18 @@ fn main() -> ExitCode {
     let cli = cmd().get_matches();
 
     util::ensure_config_dir();
-    let config = ManagerConfig::load_or_create();
+    ManagerConfig::load_or_create();
 
     if let Some(subcommand) = cli.subcommand() {
-        match subcommand {
-            ("list-instances", _) => return list_instances_command(),
+        return match subcommand {
+            ("list-instances", _) => list_instances_command(),
             _ => {
-                panic!("Unknown Subcommand")
+                println!("Unknown Subcommand");
+                ExitCode::FAILURE
             }
         };
+
+
     } else {
         gui_application()
     }
