@@ -1,14 +1,18 @@
 use std::collections::HashMap;
-use std::fs;
+use std::{fs, io};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use clap::{Arg, ArgAction, ArgGroup, ArgMatches, command, Command, Parser, Subcommand, value_parser};
+use clap::ValueHint::DirPath;
+use gtk::glib::PropertyGet;
 use lazy_static::lazy_static;
+use nix::NixPath;
 use regex::Regex;
 
 use dat_mod_manager::gui_application::gui_application;
 use dat_mod_manager::constants;
 use dat_mod_manager::manager_config::ManagerConfig;
+use dat_mod_manager::mod_info::instance;
 use dat_mod_manager::mod_info::instance::{Instance, list_instances};
 
 mod util;
@@ -25,13 +29,14 @@ fn main() -> ExitCode {
             ("set-default-instance", matches) =>
                 set_default_instance_command(matches.get_one::<String>("INSTANCE").unwrap()),
             ("create-instance", matches) => {
-                create_instance_command(matches.get_one::<String>("NAME").cloned(),
+
+                create_instance_command(matches.get_one::<String>("NAME").cloned().unwrap(),
                                         matches.get_one::<PathBuf>("BASE_PATH"),
                                         matches.get_one::<PathBuf>("MODS_PATH"),
                                         matches.get_one::<PathBuf>("DOWNLOADS_PATH"),
                                         matches.get_one::<PathBuf>("OVERWRITE_PATH"),
                                         matches.get_one::<PathBuf>("PROFILES_PATH"),
-                                        matches.get_one::<bool>("DEFAULT"))
+                                        matches.get_one::<bool>("DEFAULT").unwrap().get())
             }
             _ => {
                 println!("Unknown Subcommand");
@@ -65,12 +70,100 @@ fn is_name_valid(name: &str, instances: HashMap<String, Instance>, feedback: boo
     }
 }
 
-fn create_instance_command(name: Option<String>, base_path: Option<&PathBuf>, mods_path: Option<&PathBuf>, downloads_path: Option<&PathBuf>, overwrite_path: Option<&PathBuf>, profiles_path: Option<&PathBuf>, default: Option<&bool>) -> ExitCode {
+fn create_instance_command(name: String, game: String, base_path: Option<&PathBuf>, mods_path: Option<&PathBuf>, downloads_path: Option<&PathBuf>, overwrite_path: Option<&PathBuf>, profiles_path: Option<&PathBuf>, default: bool) -> ExitCode {
     let instances = list_instances();
     let mut config = ManagerConfig::load_or_create();
+    // Get name
 
+    // Get base_path
+    let base_path = match base_path {
+        None => {
+            println!("Enter the base directory path (leave empty for {}):", constants::instance_data_dir().join(&name).display());
+            let mut string_path: String = "".to_string();
+            io::stdin()
+                .read_line(&mut string_path)
+                .expect("Failed to get user input");
+            if string_path.is_empty() {
+                constants::instance_data_dir().join(&name)
+            } else {
+                PathBuf::from(string_path)
+            }
+        }
+        Some(path) => path
+    };
 
-    let mut name = name.unwrap_or("".to_owned());
+    // Get mods path
+    let mods_path = match mods_path {
+        None => {
+            println!("Enter the mods directory path, relative paths will be relative to the base directory (leave empty for ./mods):");
+            let mut string_path: String = "".to_string();
+            io::stdin()
+                .read_line(&mut string_path)
+                .expect("Failed to get user input");
+            if string_path.is_empty() {
+                PathBuf::from("./mods")
+            } else {
+                PathBuf::from(string_path)
+            }
+        }
+        Some(path) => path
+    };
+
+    // Get downloads path
+    let downloads_path = match downloads_path {
+        None => {
+            println!("Enter the downloads directory path, relative paths will be relative to the base directory (leave empty for ./downloads):");
+            let mut string_path: String = "".to_string();
+            io::stdin()
+                .read_line(&mut string_path)
+                .expect("Failed to get user input");
+            if string_path.is_empty() {
+                PathBuf::from("./downloads")
+            } else {
+                PathBuf::from(string_path)
+            }
+        }
+        Some(path) => path
+    };
+
+    // Get overwrite path
+    let overwrite_path = match overwrite_path {
+        None => {
+            println!("Enter the overwrite directory path, relative paths will be relative to the base directory (leave empty for ./overwrite):");
+            let mut string_path: String = "".to_string();
+            io::stdin()
+                .read_line(&mut string_path)
+                .expect("Failed to get user input");
+            if string_path.is_empty() {
+                PathBuf::from("./overwrite")
+            } else {
+                PathBuf::from(string_path)
+            }
+        }
+        Some(path) => path
+    };
+
+    // Get Profiles path
+    let profiles_path = match profiles_path {
+        None => {
+            println!("Enter the profiles directory path, relative paths will be relative to the base directory (leave empty for ./profiles):");
+            let mut string_path: String = "".to_string();
+            io::stdin()
+                .read_line(&mut string_path)
+                .expect("Failed to get user input");
+            if string_path.is_empty() {
+                PathBuf::from("./profiles")
+            } else {
+                PathBuf::from(string_path)
+            }
+        }
+        Some(path) => path
+    };
+
+    // Create instance
+    instance::create_instance(&name, &game, &base_path, &mods_path, &downloads_path, &overwrite_path, &profiles_path);
+
+    ExitCode::SUCCESS
 }
 
 fn set_default_instance_command(instance_name: &str) -> ExitCode {
@@ -137,6 +230,7 @@ fn cmd() -> Command {
                     Arg::new("INSTANCE")
                         .allow_hyphen_values(true)
                         .required(true)
+                        .value_parser(list_instances().values())
                 )
         )
         .subcommand(
@@ -144,10 +238,23 @@ fn cmd() -> Command {
                 .about("Create a new instance")
                 .after_help("For the paths (besides the BASE_PATH), relative paths will be relative to the BASE_PATH, absolute paths will work as expected\n\
                 Any arguments or options not provided will be prompted for")
+                .group(
+                    ArgGroup::new("Paths")
+                        .args(&["BASE_PATH", "MODS_PATH", "DOWNLOADS_PATH", "OVERWRITE_PATH", "PROFILES_PATH"])
+                )
+
                 .arg(
                     Arg::new("NAME")
                         .allow_hyphen_values(true)
                         .help("The name of the new profile")
+                        .required(true)
+                )
+                .arg(
+                    Arg::new("GAME")
+                        .allow_hyphen_values(true)
+                        .help("The game this profile is for")
+                        .required(true)
+                        // .value_parser() TODO: available games
                 )
                 .arg(
                     Arg::new("BASE_PATH")
@@ -155,6 +262,7 @@ fn cmd() -> Command {
                         .short('b')
                         .value_parser(value_parser!(std::path::PathBuf))
                         .help("The base directory of the instance")
+                        .value_hint(DirPath)
                 )
                 .arg(
                     Arg::new("MODS_PATH")
@@ -162,6 +270,7 @@ fn cmd() -> Command {
                         .short('m')
                         .value_parser(value_parser!(std::path::PathBuf))
                         .help("The directory in which mods are stored")
+                        .value_hint(DirPath)
                 )
                 .arg(
                     Arg::new("DOWNLOADS_PATH")
@@ -169,6 +278,7 @@ fn cmd() -> Command {
                         .short('d')
                         .value_parser(value_parser!(std::path::PathBuf))
                         .help("The directory in which mods are downloaded to")
+                        .value_hint(DirPath)
                 )
                 .arg(
                     Arg::new("OVERWRITE_PATH")
@@ -176,13 +286,15 @@ fn cmd() -> Command {
                         .short('o')
                         .value_parser(value_parser!(std::path::PathBuf))
                         .help("The directory in which runtime changes are written to")
+                        .value_hint(DirPath)
                 )
                 .arg(
-                    Arg::new("PROFILE_PATH")
-                        .long("profile-path")
+                    Arg::new("PROFILES_PATH")
+                        .long("profiles-path")
                         .short('p')
                         .value_parser(value_parser!(std::path::PathBuf))
-                        .help("The directory in which profile information is stored")
+                        .help("The directory in which profiles information is stored")
+                        .value_hint(DirPath)
                 )
                 .arg(
                     Arg::new("DEFAULT")

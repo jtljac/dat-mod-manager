@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
-use serde::{Serialize, Deserialize, Serializer};
-
+use serde::{Serialize, Deserialize};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
-use crate::constants;
-use crate::mod_info::game::Game;
+use error_chain::bail;
+
+use crate::{constants, errors};
+use crate::errors::ErrorKind;
 use crate::mod_info::mod_list::ModList;
 
 /* ========================================= */
@@ -29,8 +29,14 @@ pub struct Instance {
 }
 
 impl Instance {
-    pub fn new(base_path: PathBuf, mods_path: PathBuf, downloads_path: PathBuf, overwrite_path: PathBuf, profile_path: PathBuf, game: &str) -> Self {
-        Self { base_path, mods_path, downloads_path, overwrite_path, profile_path, game: game.to_string(), mod_list: ModList::new() }
+    pub fn new(base_path: &Path, mods_path: &Path, downloads_path: &Path, overwrite_path: &Path, profile_path: &Path, game: &str) -> Self {
+        Self { base_path: base_path.to_path_buf(), mods_path: mods_path.to_path_buf(), downloads_path: downloads_path.to_path_buf(), overwrite_path: overwrite_path.to_path_buf(), profile_path: profile_path.to_path_buf(), game: game.to_string(), mod_list: ModList::new() }
+    }
+
+    pub fn from_name(profile_name: &str) -> Result<Instance, Box<dyn Error>> {
+        let profile_path = constants::instance_dir().join(profile_name.to_string() + ".toml");
+
+        Instance::from_path(&profile_path)
     }
 
     fn from_path(path: &Path) -> Result<Instance, Box<dyn Error>> {
@@ -98,6 +104,10 @@ impl Instance {
 /* Util                                      */
 /* ========================================= */
 
+/// Get a list of all the registered instances
+///
+/// returns: HashMap<String, Instance> A map with the instance name as the key and the instance as the value
+///
 pub fn list_instances() -> HashMap<String, Instance> {
     let instance_path = constants::instance_dir();
     let mut profiles = HashMap::new();
@@ -127,4 +137,34 @@ pub fn list_instances() -> HashMap<String, Instance> {
     }
 
     profiles
+}
+
+pub fn create_instance(name: &str, game: &str, base_path: &Path, mods_path: &Path, downloads_path: &Path, overwrite_path: &Path, profile_path: &Path) -> errors::Result<Instance> {
+    if list_instances().contains_key(name) {bail!(ErrorKind::InstanceExists)}
+
+    let instance = Instance::new(base_path, mods_path, downloads_path, overwrite_path, profile_path, game);
+
+    if !instance.base_path.exists() {
+        fs::create_dir_all(&instance.base_path)?
+    }
+
+    if !instance.mods_path.exists() {
+        fs::create_dir_all(&instance.mods_path)?
+    }
+
+    if !instance.downloads_path.exists() {
+        fs::create_dir_all(&instance.downloads_path)?
+    }
+
+    if !instance.overwrite_path.exists() {
+        fs::create_dir_all(&instance.overwrite_path)?
+    }
+
+    if !instance.profile_path.exists() {
+        fs::create_dir_all(&instance.profile_path)?
+    }
+
+    fs::write(constants::instance_dir().join(name.to_string() + ".toml"), toml::to_string(&instance)?)?;
+
+    Ok(instance)
 }
