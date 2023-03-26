@@ -1,12 +1,15 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use clap::{Arg, ArgAction, ArgGroup, ArgMatches, command, Command, Parser, Subcommand, value_parser};
+use lazy_static::lazy_static;
+use regex::Regex;
 
 use dat_mod_manager::gui_application::gui_application;
 use dat_mod_manager::constants;
 use dat_mod_manager::manager_config::ManagerConfig;
-use dat_mod_manager::mod_info::instance::list_instances;
+use dat_mod_manager::mod_info::instance::{Instance, list_instances};
 
 mod util;
 
@@ -22,7 +25,7 @@ fn main() -> ExitCode {
             ("set-default-instance", matches) =>
                 set_default_instance_command(matches.get_one::<String>("INSTANCE").unwrap()),
             ("create-instance", matches) => {
-                create_instance_command(matches.get_one::<String>("NAME"),
+                create_instance_command(matches.get_one::<String>("NAME").cloned(),
                                         matches.get_one::<PathBuf>("BASE_PATH"),
                                         matches.get_one::<PathBuf>("MODS_PATH"),
                                         matches.get_one::<PathBuf>("DOWNLOADS_PATH"),
@@ -40,6 +43,34 @@ fn main() -> ExitCode {
     } else {
         gui_application()
     }
+}
+
+fn is_name_valid(name: &str, instances: HashMap<String, Instance>, feedback: bool) -> bool {
+    lazy_static! {
+        static ref RE: Regex = Regex::new(r"[\w \-.]+").unwrap();
+    }
+    let instances = list_instances();
+
+    if name.is_empty() {
+        if feedback {println!("You must provide a profile name")}
+        false
+    } else if instances.contains_key(name) {
+        if feedback {println!("A profile with that name already exists")};
+        false
+    } else if !RE.is_match(&name) {
+            if feedback {println!("That name does not meet the requirements (Letters, numbers, -, _, .)")};
+        false
+    } else {
+        true
+    }
+}
+
+fn create_instance_command(name: Option<String>, base_path: Option<&PathBuf>, mods_path: Option<&PathBuf>, downloads_path: Option<&PathBuf>, overwrite_path: Option<&PathBuf>, profiles_path: Option<&PathBuf>, default: Option<&bool>) -> ExitCode {
+    let instances = list_instances();
+    let mut config = ManagerConfig::load_or_create();
+
+
+    let mut name = name.unwrap_or("".to_owned());
 }
 
 fn set_default_instance_command(instance_name: &str) -> ExitCode {
