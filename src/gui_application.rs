@@ -1,11 +1,8 @@
-use std::cell::Cell;
 use std::process::{ExitCode, Termination};
-use std::rc::Rc;
 use gtk::{Application, ApplicationWindow, Button, CustomFilter, CustomSorter, DragSource, DropTarget, FilterChange, FilterListModel, gio, Label, ListItem, ListView, Orientation, PolicyType, ScrolledWindow, SignalListItemFactory, SingleSelection, SorterChange, SortListModel, Widget};
-use gtk::ffi::{GtkEventController, GtkEventControllerKey};
-use gtk::gdk::{ContentFormats, ContentProvider, DragAction};
+use gtk::gdk::{ContentProvider, DragAction};
 use gtk::glib;
-use gtk::glib::{clone, Type, Value};
+use gtk::glib::{clone};
 use gtk::prelude::*;
 use crate::gui_application::integer_object::StringObject;
 

@@ -1,11 +1,11 @@
 use std::collections::HashMap;
-use std::error::Error;
 use std::fs;
 use serde::{Serialize, Deserialize};
 use std::path::{Path, PathBuf};
 use error_chain::bail;
 
-use crate::{constants, errors};
+use crate::errors;
+use crate::constants::instance_dir;
 use crate::errors::ErrorKind;
 use crate::mod_info::mod_list::ModList;
 
@@ -19,7 +19,7 @@ pub struct Instance {
     mods_path: PathBuf,
     downloads_path: PathBuf,
     overwrite_path: PathBuf,
-    profile_path: PathBuf,
+    profiles_path: PathBuf,
 
     game: String,
 
@@ -30,16 +30,16 @@ pub struct Instance {
 
 impl Instance {
     pub fn new(base_path: &Path, mods_path: &Path, downloads_path: &Path, overwrite_path: &Path, profile_path: &Path, game: &str) -> Self {
-        Self { base_path: base_path.to_path_buf(), mods_path: mods_path.to_path_buf(), downloads_path: downloads_path.to_path_buf(), overwrite_path: overwrite_path.to_path_buf(), profile_path: profile_path.to_path_buf(), game: game.to_string(), mod_list: ModList::new() }
+        Self { base_path: base_path.to_path_buf(), mods_path: mods_path.to_path_buf(), downloads_path: downloads_path.to_path_buf(), overwrite_path: overwrite_path.to_path_buf(), profiles_path: profile_path.to_path_buf(), game: game.to_string(), mod_list: ModList::new() }
     }
 
-    pub fn from_name(profile_name: &str) -> Result<Instance, Box<dyn Error>> {
-        let profile_path = constants::instance_dir().join(profile_name.to_string() + ".toml");
+    pub fn from_name(profile_name: &str) -> errors::Result<Instance> {
+        let profile_path = instance_dir().join(profile_name.to_string() + ".toml");
 
         Instance::from_path(&profile_path)
     }
 
-    fn from_path(path: &Path) -> Result<Instance, Box<dyn Error>> {
+    fn from_path(path: &Path) -> errors::Result<Instance> {
         let toml_content = fs::read_to_string(path)?;
 
         let instance = toml::from_str(&toml_content)?;
@@ -53,7 +53,7 @@ impl Instance {
             mods_path: PathBuf::from("mods"),
             downloads_path: PathBuf::from("downloads"),
             overwrite_path: PathBuf::from("overwrite"),
-            profile_path: PathBuf::from("profiles"),
+            profiles_path: PathBuf::from("profiles"),
             game: game.to_string(),
             mod_list: ModList::new()
         }
@@ -87,11 +87,11 @@ impl Instance {
         }
     }
 
-    pub fn profile_path(&self) -> PathBuf {
-        if self.profile_path.is_absolute() {
-            self.profile_path.clone()
+    pub fn profiles_path(&self) -> PathBuf {
+        if self.profiles_path.is_absolute() {
+            self.profiles_path.clone()
         } else {
-            self.base_path.join(self.profile_path.as_path())
+            self.base_path.join(self.profiles_path.as_path())
         }
     }
 
@@ -109,7 +109,7 @@ impl Instance {
 /// returns: HashMap<String, Instance> A map with the instance name as the key and the instance as the value
 ///
 pub fn get_instances() -> HashMap<String, Instance> {
-    let instance_path = constants::instance_dir();
+    let instance_path = instance_dir();
     let mut profiles = HashMap::new();
 
     if !instance_path.exists() {
@@ -117,8 +117,7 @@ pub fn get_instances() -> HashMap<String, Instance> {
     }
 
     let files = fs::read_dir(&instance_path).unwrap_or_else(|err| {
-        let path_string = instance_path.display();
-        panic!("Failed to access instance folder at {path_string}\nError: {err}")
+        panic!("Failed to access instance folder at {}\nError: {err}", instance_path.display())
     });
 
     for path in files {
@@ -140,7 +139,7 @@ pub fn get_instances() -> HashMap<String, Instance> {
 }
 
 pub fn list_instances() -> Vec<String> {
-    let instance_path = constants::instance_dir();
+    let instance_path = instance_dir();
     let mut profiles = Vec::new();
 
     if !instance_path.exists() {
@@ -148,8 +147,7 @@ pub fn list_instances() -> Vec<String> {
     }
 
     let files = fs::read_dir(&instance_path).unwrap_or_else(|err| {
-        let path_string = instance_path.display();
-        panic!("Failed to access instance folder at {path_string}\nError: {err}")
+        panic!("Failed to access instance folder at {}\nError: {err}", instance_path.display())
     });
 
     for path in files {
@@ -170,26 +168,34 @@ pub fn create_instance(name: &str, game: &str, base_path: &Path, mods_path: &Pat
     let instance = Instance::new(base_path, mods_path, downloads_path, overwrite_path, profile_path, game);
 
     if !instance.base_path().exists() {
-        fs::create_dir_all(&instance.base_path())?
+        fs::create_dir_all(instance.base_path())?
     }
 
     if !instance.mods_path().exists() {
-        fs::create_dir_all(&instance.mods_path())?
+        fs::create_dir_all(instance.mods_path())?
     }
 
     if !instance.downloads_path().exists() {
-        fs::create_dir_all(&instance.downloads_path())?
+        fs::create_dir_all(instance.downloads_path())?
     }
 
     if !instance.overwrite_path().exists() {
-        fs::create_dir_all(&instance.overwrite_path())?
+        fs::create_dir_all(instance.overwrite_path())?
     }
 
-    if !instance.profile_path().exists() {
-        fs::create_dir_all(&instance.profile_path())?
+    if !instance.profiles_path().exists() {
+        fs::create_dir_all(instance.profiles_path())?
     }
 
-    fs::write(constants::instance_dir().join(name.to_string() + ".toml"), toml::to_string(&instance)?)?;
+    fs::write(instance_dir().join(name.to_string() + ".toml"), toml::to_string(&instance)?)?;
 
     Ok(instance)
 }
+
+pub fn delete_instance(name: &str) -> errors::Result<()>{
+    match fs::remove_file(instance_dir().join(name.to_string() + ".toml")) {
+        Ok(_) => Ok(()),
+        Err(err) => bail!(err)
+    }
+}
+

@@ -48,7 +48,7 @@ impl ManagerConfig {
                             _ => {}
                         }
                     }
-                    ErrorKind::Deserialise(e) => {
+                    ErrorKind::Deserialise(_) => {
                         let mut new_path = config_path.with_extension(".bak");
                         let file_name = config_path.file_stem().unwrap().to_str().unwrap();
                         let mut i = 1;

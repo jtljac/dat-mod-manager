@@ -1,19 +1,20 @@
 use std::collections::HashMap;
-use std::{fs, io};
+use std::{io, thread};
+use std::fmt::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use clap::{Arg, ArgAction, ArgGroup, command, Command, Parser, Subcommand, value_parser};
-use clap::builder::PossibleValuesParser;
+use clap::{Arg, ArgAction, ArgGroup, command, Command, value_parser};
 use clap::ValueHint::DirPath;
-use gtk::glib::PropertyGet;
-use lazy_static::lazy_static;
+use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};
 use regex::Regex;
 
 use dat_mod_manager::gui_application::gui_application;
 use dat_mod_manager::constants;
 use dat_mod_manager::manager_config::ManagerConfig;
 use dat_mod_manager::mod_info::instance;
-use dat_mod_manager::mod_info::instance::{Instance, get_instances, list_instances};
+use dat_mod_manager::mod_info::instance::{Instance, get_instances, delete_instance};
+
+use dat_mod_manager::util::delete_dir_with_callback;
 
 mod util;
 
@@ -28,8 +29,7 @@ fn main() -> ExitCode {
             ("list-instances", _) => list_instances_command(),
             ("set-default-instance", matches) =>
                 set_default_instance_command(matches.get_one::<String>("INSTANCE").unwrap()),
-            ("create-instance", matches) => {
-
+            ("create-instance", matches) =>
                 create_instance_command(matches.get_one::<String>("NAME").cloned().unwrap(),
                                         matches.get_one::<String>("GAME").cloned().unwrap(),
                                         matches.get_one::<PathBuf>("BASE_PATH"),
@@ -37,8 +37,11 @@ fn main() -> ExitCode {
                                         matches.get_one::<PathBuf>("DOWNLOADS_PATH"),
                                         matches.get_one::<PathBuf>("OVERWRITE_PATH"),
                                         matches.get_one::<PathBuf>("PROFILES_PATH"),
-                                        matches.get_one::<bool>("DEFAULT").unwrap().clone())
-            }
+                                        *matches.get_one::<bool>("DEFAULT").unwrap()),
+            ("delete-instance", matches) =>
+                delete_instance_command(matches.get_one::<String>("NAME").cloned().unwrap(),
+                                        *matches.get_one::<bool>("CLEAR").unwrap(),
+                                        *matches.get_one::<bool>("FORCE").unwrap()),
             _ => {
                 println!("Unknown Subcommand");
                 ExitCode::FAILURE
@@ -51,131 +54,25 @@ fn main() -> ExitCode {
     }
 }
 
-fn is_name_valid(name: &str, instances: HashMap<String, Instance>, feedback: bool) -> bool {
-    lazy_static! {
-        static ref RE: Regex = Regex::new(r"[\w \-.]+").unwrap();
-    }
+fn list_instances_command() -> ExitCode {
     let instances = get_instances();
 
-    if name.is_empty() {
-        if feedback {println!("You must provide a profile name")}
-        false
-    } else if instances.contains_key(name) {
-        if feedback {println!("A profile with that name already exists")};
-        false
-    } else if !RE.is_match(&name) {
-            if feedback {println!("That name does not meet the requirements (Letters, numbers, -, _, .)")};
-        false
+    if instances.is_empty() {
+        println!("There are no instances");
     } else {
-        true
-    }
-}
-
-fn create_instance_command(name: String, game: String, base_path: Option<&PathBuf>, mods_path: Option<&PathBuf>, downloads_path: Option<&PathBuf>, overwrite_path: Option<&PathBuf>, profiles_path: Option<&PathBuf>, default: bool) -> ExitCode {
-    let instances = get_instances();
-    let mut config = ManagerConfig::load_or_create();
-    // Get name
-
-    // Get base_path
-    let base_path = match base_path {
-        None => {
-            println!("Enter the base directory path (leave empty for {}):", constants::instance_data_dir().join(&name).display());
-            let mut string_path: String = "".to_string();
-            io::stdin()
-                .read_line(&mut string_path)
-                .expect("Failed to get user input");
-            if string_path.trim().is_empty() {
-                constants::instance_data_dir().join(&name)
-            } else {
-                PathBuf::from(string_path.trim())
-            }
-        }
-        Some(path) => path.clone()
-    };
-
-    // Get mods path
-    let mods_path = match mods_path {
-        None => {
-            println!("Enter the mods directory path, relative paths will be relative to the base directory (leave empty for ./mods):");
-            let mut string_path: String = "".to_string();
-            io::stdin()
-                .read_line(&mut string_path)
-                .expect("Failed to get user input");
-            if string_path.trim().is_empty() {
-                PathBuf::from("./mods")
-            } else {
-                PathBuf::from(string_path.trim())
-            }
-        }
-        Some(path) => path.clone()
-    };
-
-    // Get downloads path
-    let downloads_path = match downloads_path {
-        None => {
-            println!("Enter the downloads directory path, relative paths will be relative to the base directory (leave empty for ./downloads):");
-            let mut string_path: String = "".to_string();
-            io::stdin()
-                .read_line(&mut string_path)
-                .expect("Failed to get user input");
-            if string_path.trim().is_empty() {
-                PathBuf::from("./downloads")
-            } else {
-                PathBuf::from(string_path.trim())
-            }
-        }
-        Some(path) => path.clone()
-    };
-
-    // Get overwrite path
-    let overwrite_path = match overwrite_path {
-        None => {
-            println!("Enter the overwrite directory path, relative paths will be relative to the base directory (leave empty for ./overwrite):");
-            let mut string_path: String = "".to_string();
-            io::stdin()
-                .read_line(&mut string_path)
-                .expect("Failed to get user input");
-            if string_path.trim().is_empty() {
-                PathBuf::from("./overwrite")
-            } else {
-                PathBuf::from(string_path.trim())
-            }
-        }
-        Some(path) => path.clone()
-    };
-
-    // Get Profiles path
-    let profiles_path = match profiles_path {
-        None => {
-            println!("Enter the profiles directory path, relative paths will be relative to the base directory (leave empty for ./profiles):");
-            let mut string_path: String = "".to_string();
-            io::stdin()
-                .read_line(&mut string_path)
-                .expect("Failed to get user input");
-            if string_path.trim().is_empty() {
-                PathBuf::from("./profiles")
-            } else {
-                PathBuf::from(string_path.trim())
-            }
-        }
-        Some(path) => path.clone()
-    };
-
-    // Create instance
-    match instance::create_instance(&name, &game, &base_path, &mods_path, &downloads_path, &overwrite_path, &profiles_path) {
-        Ok(_) => {
-            println!("Successfully created instance")
-        }
-        Err(err) => {
-            println!("Failed to create instance, error given is:\n{}", err.to_string());
-            return ExitCode::FAILURE
-        }
-    };
-
-    config.default_instance = name;
-    if let Err(err) = config.save() {
-        println!("Failed to save default instance:\n{err}");
-        return ExitCode::FAILURE
+        let instance_string: String = instances.iter()
+            .map(|(key,     instance)| {
+                let config = ManagerConfig::load_or_create();
+                let selected = if key == &config.default_instance {
+                    "*"
+                } else {
+                    ""
+                };
+                format!("{key}{selected}\t{}\n", instance.game())
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
+        println!("{instance_string}");
     }
 
     ExitCode::SUCCESS
@@ -205,25 +102,211 @@ fn set_default_instance_command(instance_name: &str) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn list_instances_command() -> ExitCode {
+fn create_instance_command(
+    name: String,
+    game: String,
+    base_path: Option<&PathBuf>,
+    mods_path: Option<&PathBuf>,
+    downloads_path: Option<&PathBuf>,
+    overwrite_path: Option<&PathBuf>,
+    profiles_path: Option<&PathBuf>,
+    default: bool
+) -> ExitCode {
     let instances = get_instances();
+    let mut config = ManagerConfig::load_or_create();
 
-    if instances.is_empty() {
-        println!("There are no instances");
-    } else {
-        let instance_string: String = instances.iter()
-            .map(|(key,     instance)| {
-                let config = ManagerConfig::load_or_create();
-                let selected = if key == &config.default_instance {
-                    "*"
-                } else {
-                    ""
-                };
-                format!("{key}{selected}\t{}\n", instance.game())
+    // Check name
+    if name.is_empty() {
+        println!("You must provide a profile name");
+        return ExitCode::FAILURE
+    } else if instances.contains_key(&name) {
+        println!("A profile with that name already exists");
+        return ExitCode::FAILURE
+    } else if !Regex::new(r"[\w \-.]+").unwrap().is_match(&name) {
+        println!("That name does not meet the requirements (Letters, numbers, -, _, .)");
+        return ExitCode::FAILURE
+    }
+
+    let base_path = match base_path {
+        None => {
+            println!("Enter the base directory path (leave empty for {}):", constants::instance_data_dir().join(&name).display());
+            let mut string_path: String = "".to_string();
+            io::stdin()
+                .read_line(&mut string_path)
+                .expect("Failed to get user input");
+            if string_path.trim().is_empty() {
+                constants::instance_data_dir().join(&name)
+            } else {
+                PathBuf::from(string_path.trim())
+            }
+        }
+        Some(path) => path.clone()
+    };
+
+    let mods_path = match mods_path {
+        None => {
+            println!("Enter the mods directory path, relative paths will be relative to the base directory (leave empty for ./mods):");
+            let mut string_path: String = "".to_string();
+            io::stdin()
+                .read_line(&mut string_path)
+                .expect("Failed to get user input");
+            if string_path.trim().is_empty() {
+                PathBuf::from("./mods")
+            } else {
+                PathBuf::from(string_path.trim())
+            }
+        }
+        Some(path) => path.clone()
+    };
+
+    let downloads_path = match downloads_path {
+        None => {
+            println!("Enter the downloads directory path, relative paths will be relative to the base directory (leave empty for ./downloads):");
+            let mut string_path: String = "".to_string();
+            io::stdin()
+                .read_line(&mut string_path)
+                .expect("Failed to get user input");
+            if string_path.trim().is_empty() {
+                PathBuf::from("./downloads")
+            } else {
+                PathBuf::from(string_path.trim())
+            }
+        }
+        Some(path) => path.clone()
+    };
+
+    let overwrite_path = match overwrite_path {
+        None => {
+            println!("Enter the overwrite directory path, relative paths will be relative to the base directory (leave empty for ./overwrite):");
+            let mut string_path: String = "".to_string();
+            io::stdin()
+                .read_line(&mut string_path)
+                .expect("Failed to get user input");
+            if string_path.trim().is_empty() {
+                PathBuf::from("./overwrite")
+            } else {
+                PathBuf::from(string_path.trim())
+            }
+        }
+        Some(path) => path.clone()
+    };
+
+    let profiles_path = match profiles_path {
+        None => {
+            println!("Enter the profiles directory path, relative paths will be relative to the base directory (leave empty for ./profiles):");
+            let mut string_path: String = "".to_string();
+            io::stdin()
+                .read_line(&mut string_path)
+                .expect("Failed to get user input");
+            if string_path.trim().is_empty() {
+                PathBuf::from("./profiles")
+            } else {
+                PathBuf::from(string_path.trim())
+            }
+        }
+        Some(path) => path.clone()
+    };
+
+    match instance::create_instance(&name, &game, &base_path, &mods_path, &downloads_path, &overwrite_path, &profiles_path) {
+        Ok(_) => {
+            println!("Successfully created instance")
+        }
+        Err(err) => {
+            println!("Failed to create instance, error given is:\n{}", err);
+            return ExitCode::FAILURE
+        }
+    };
+
+    if default {
+        config.default_instance = name;
+        if let Err(err) = config.save() {
+            println!("Failed to save default instance:\n{err}");
+            return ExitCode::FAILURE
+        }
+    }
+
+    ExitCode::SUCCESS
+}
+
+fn delete_instance_command(name: String, remove: bool, force: bool) -> ExitCode {
+    let instance = match Instance::from_name(&name) {
+        Ok(instance) => instance,
+        Err(_) => {
+            println!("No instance with that name");
+            return ExitCode::FAILURE
+        }
+    };
+
+    if !force {
+        println!("Are you sure you want to delete instance: {name}? (y/n)");
+        let mut answer = String::new();
+        io::stdin()
+            .read_line(&mut answer)
+            .expect("Failed to get user input");
+
+        if !answer.starts_with('y') {
+            println!("Instance not deleted");
+            return ExitCode::FAILURE
+        }
+    }
+
+    if remove {
+        println!("Removing instance data");
+        let m = MultiProgress::new();
+        let style = ProgressStyle::with_template("{spinner:.green} {prefix} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {msg:!40} {human_pos}/{human_len} ({eta})")
+            .unwrap()
+            .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())
+            .progress_chars("#>-");
+
+        let callback = |pb: &ProgressBar, total: u32, progress:u32, file: &str| {
+            pb.set_length(total as u64);
+            pb.set_position(progress as u64);
+            pb.set_message(file.to_string());
+        };
+
+        let deletions = HashMap::from([
+            ("Downloads", instance.downloads_path()),
+            ("Mods", instance.mods_path()),
+            ("Overwrite", instance.overwrite_path()),
+            ("Profiles", instance.profiles_path()),
+        ]);
+
+        let handles: Vec<_> = deletions.iter().map(|(key, value)| {
+            let pb = m.add(ProgressBar::new(100));
+            pb.set_style(style.clone());
+            pb.set_prefix(key.to_string());
+            let value = value.clone();
+            thread::spawn(move || {
+                delete_dir_with_callback(value, |total: u32, progress:u32, file: &str| {
+                    callback(&pb, total, progress, file);
+                });
+
+                pb.finish_with_message("waiting...")
             })
-            .collect::<Vec<String>>()
-            .join("\n");
-        println!("{instance_string}");
+        }).collect();
+
+        for handle in handles {
+            let _ = handle.join();
+        }
+
+        let pb = m.add(ProgressBar::new(100));
+        pb.set_style(style);
+        pb.set_prefix("Instance");
+
+        delete_dir_with_callback(instance.base_path().to_path_buf(), |total: u32, progress:u32, file: &str| {
+            callback(&pb, total, progress, file);
+        });
+
+        pb.finish_with_message("done")
+    }
+
+    match delete_instance(&name) {
+        Ok(_) => {
+            println!("Successfully deleted instance");
+        }
+        Err(err) => {
+            println!("Failed to delete instance file, given error was: \n{err}")
+        }
     }
 
     ExitCode::SUCCESS
@@ -254,7 +337,7 @@ fn cmd() -> Command {
                 Any arguments or options not provided will be prompted for")
                 .group(
                     ArgGroup::new("Paths")
-                        .args(&["BASE_PATH", "MODS_PATH", "DOWNLOADS_PATH", "OVERWRITE_PATH", "PROFILES_PATH"])
+                        .args(["BASE_PATH", "MODS_PATH", "DOWNLOADS_PATH", "OVERWRITE_PATH", "PROFILES_PATH"])
                 )
 
                 .arg(
@@ -316,6 +399,29 @@ fn cmd() -> Command {
                         .short('D')
                         .action(ArgAction::SetTrue)
                         .help("Set the newly created profile as the default profile")
+                )
+        )
+        .subcommand(
+            Command::new("delete-instance")
+                .arg(
+                    Arg::new("NAME")
+                        .allow_hyphen_values(true)
+                        .help("The name of the profile to delete")
+                        .required(true)
+                )
+                .arg(
+                    Arg::new("CLEAR")
+                        .long("clear")
+                        .short('c')
+                        .action(ArgAction::SetTrue)
+                        .help("Remove this instances data (mods, downloads, etc)")
+                )
+                .arg(
+                    Arg::new("FORCE")
+                        .long("force")
+                        .short('f')
+                        .action(ArgAction::SetTrue)
+                        .help("Skip the prompt double-checking you're sure you want to delete the profile")
                 )
         )
 }
