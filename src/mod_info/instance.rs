@@ -108,7 +108,7 @@ impl Instance {
 ///
 /// returns: HashMap<String, Instance> A map with the instance name as the key and the instance as the value
 ///
-pub fn list_instances() -> HashMap<String, Instance> {
+pub fn get_instances() -> HashMap<String, Instance> {
     let instance_path = constants::instance_dir();
     let mut profiles = HashMap::new();
 
@@ -139,29 +139,54 @@ pub fn list_instances() -> HashMap<String, Instance> {
     profiles
 }
 
+pub fn list_instances() -> Vec<String> {
+    let instance_path = constants::instance_dir();
+    let mut profiles = Vec::new();
+
+    if !instance_path.exists() {
+        return profiles
+    }
+
+    let files = fs::read_dir(&instance_path).unwrap_or_else(|err| {
+        let path_string = instance_path.display();
+        panic!("Failed to access instance folder at {path_string}\nError: {err}")
+    });
+
+    for path in files {
+        let file = path.unwrap().path();
+        if file.is_file() {
+            let instance_name = file.file_stem().unwrap().to_str().unwrap();
+
+            profiles.push(instance_name.to_string());
+        }
+    }
+
+    profiles
+}
+
 pub fn create_instance(name: &str, game: &str, base_path: &Path, mods_path: &Path, downloads_path: &Path, overwrite_path: &Path, profile_path: &Path) -> errors::Result<Instance> {
-    if list_instances().contains_key(name) {bail!(ErrorKind::InstanceExists)}
+    if get_instances().contains_key(name) {bail!(ErrorKind::InstanceExists)}
 
     let instance = Instance::new(base_path, mods_path, downloads_path, overwrite_path, profile_path, game);
 
-    if !instance.base_path.exists() {
-        fs::create_dir_all(&instance.base_path)?
+    if !instance.base_path().exists() {
+        fs::create_dir_all(&instance.base_path())?
     }
 
-    if !instance.mods_path.exists() {
-        fs::create_dir_all(&instance.mods_path)?
+    if !instance.mods_path().exists() {
+        fs::create_dir_all(&instance.mods_path())?
     }
 
-    if !instance.downloads_path.exists() {
-        fs::create_dir_all(&instance.downloads_path)?
+    if !instance.downloads_path().exists() {
+        fs::create_dir_all(&instance.downloads_path())?
     }
 
-    if !instance.overwrite_path.exists() {
-        fs::create_dir_all(&instance.overwrite_path)?
+    if !instance.overwrite_path().exists() {
+        fs::create_dir_all(&instance.overwrite_path())?
     }
 
-    if !instance.profile_path.exists() {
-        fs::create_dir_all(&instance.profile_path)?
+    if !instance.profile_path().exists() {
+        fs::create_dir_all(&instance.profile_path())?
     }
 
     fs::write(constants::instance_dir().join(name.to_string() + ".toml"), toml::to_string(&instance)?)?;

@@ -1,5 +1,4 @@
 use std::{fs, io};
-use error_chain::ChainedError;
 
 use serde::{Deserialize, Serialize};
 
@@ -49,7 +48,7 @@ impl ManagerConfig {
                             _ => {}
                         }
                     }
-                    ErrorKind::TOMLDeserialise(e) => {
+                    ErrorKind::Deserialise(e) => {
                         let mut new_path = config_path.with_extension(".bak");
                         let file_name = config_path.file_stem().unwrap().to_str().unwrap();
                         let mut i = 1;
