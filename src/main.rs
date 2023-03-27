@@ -229,6 +229,8 @@ fn create_instance_command(
 }
 
 fn delete_instance_command(name: String, remove: bool, force: bool) -> ExitCode {
+    let mut config = ManagerConfig::load_or_create();
+
     let instance = match Instance::from_name(&name) {
         Ok(instance) => instance,
         Err(_) => {
@@ -306,6 +308,14 @@ fn delete_instance_command(name: String, remove: bool, force: bool) -> ExitCode 
         }
         Err(err) => {
             println!("Failed to delete instance file, given error was: \n{err}")
+        }
+    }
+
+    if config.default_instance == name {
+        config.default_instance = "".to_string();
+        if let Err(err) = config.save() {
+            println!("Failed to clear default instance:\n{err}");
+            return ExitCode::FAILURE
         }
     }
 
