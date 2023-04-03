@@ -1,36 +1,46 @@
 use std::collections::HashMap;
 use std::{io, thread};
 use std::fmt::Write;
+use std::io::stdin;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use clap::{Arg, ArgAction, ArgGroup, command, Command, value_parser};
+use std::time::Duration;
+use clap::{Arg, ArgAction, ArgGroup, command, Command, value_parser, ValueHint};
+use clap::builder::ValueParser;
 use clap::ValueHint::DirPath;
 use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};
 use regex::Regex;
+use url::Url;
 
 use dat_mod_manager::gui_application::gui_application;
 use dat_mod_manager::constants;
 use dat_mod_manager::manager_config::ManagerConfig;
 use dat_mod_manager::mod_info::instance;
-use dat_mod_manager::mod_info::instance::{Instance, get_instances, delete_instance};
+use dat_mod_manager::mod_info::instance::{Instance, get_instances, delete_instance, list_instances};
+use dat_mod_manager::plugin::downloader::DownloadFailed;
+use dat_mod_manager::plugin::plugin_manager::PluginManager;
+use dat_mod_manager::plugin::PluginManager;
 
 use dat_mod_manager::util::delete_dir_with_callback;
 
 mod util;
 
 fn main() -> ExitCode {
-    let cli = cmd().get_matches();
-
     util::ensure_config_dir();
-    ManagerConfig::load_or_create();
+    let mut config = ManagerConfig::load_or_create();
+
+    let cli = cmd(&config).get_matches();
+    let mut plugin_man = PluginManager::default();
+    plugin_man.register_plugins();
 
     if let Some(subcommand) = cli.subcommand() {
         return match subcommand {
-            ("list-instances", _) => list_instances_command(),
+            ("list-instances", _) => list_instances_command(&config),
             ("set-default-instance", matches) =>
-                set_default_instance_command(matches.get_one::<String>("INSTANCE").unwrap()),
+                set_default_instance_command(&mut config, matches.get_one::<String>("INSTANCE").unwrap()),
             ("create-instance", matches) =>
-                create_instance_command(matches.get_one::<String>("NAME").cloned().unwrap(),
+                create_instance_command(&mut config,
+                                        matches.get_one::<String>("NAME").cloned().unwrap(),
                                         matches.get_one::<String>("GAME").cloned().unwrap(),
                                         matches.get_one::<PathBuf>("BASE_PATH"),
                                         matches.get_one::<PathBuf>("MODS_PATH"),
@@ -39,9 +49,17 @@ fn main() -> ExitCode {
                                         matches.get_one::<PathBuf>("PROFILES_PATH"),
                                         *matches.get_one::<bool>("DEFAULT").unwrap()),
             ("delete-instance", matches) =>
-                delete_instance_command(matches.get_one::<String>("NAME").cloned().unwrap(),
+                delete_instance_command(&mut config,
+                                        matches.get_one::<String>("NAME").cloned().unwrap(),
                                         *matches.get_one::<bool>("CLEAR").unwrap(),
                                         *matches.get_one::<bool>("FORCE").unwrap()),
+            ("download", matches) => {
+
+                download_command(&mut config, &mut plugin_man,
+                                 matches.get_one::<Url>("URL").cloned().unwrap(),
+                                 matches.get_one::<String>("INSTANCE").cloned(),
+                                 *matches.get_one::<bool>("NO-PROMPT").unwrap())
+            }
             _ => {
                 println!("Unknown Subcommand");
                 ExitCode::FAILURE
@@ -54,7 +72,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn list_instances_command() -> ExitCode {
+fn list_instances_command(config: &ManagerConfig) -> ExitCode {
     let instances = get_instances();
 
     if instances.is_empty() {
@@ -62,7 +80,6 @@ fn list_instances_command() -> ExitCode {
     } else {
         let instance_string: String = instances.iter()
             .map(|(key,     instance)| {
-                let config = ManagerConfig::load_or_create();
                 let selected = if key == &config.default_instance {
                     "*"
                 } else {
@@ -78,9 +95,8 @@ fn list_instances_command() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn set_default_instance_command(instance_name: &str) -> ExitCode {
+fn set_default_instance_command(config: &mut ManagerConfig, instance_name: &str) -> ExitCode {
     let instances = get_instances();
-    let mut config = ManagerConfig::load_or_create();
 
     if instance_name != "none" && !instances.contains_key(instance_name) {
         println!("Unknown instance: {instance_name}");
@@ -103,6 +119,7 @@ fn set_default_instance_command(instance_name: &str) -> ExitCode {
 }
 
 fn create_instance_command(
+    config: &mut ManagerConfig,
     name: String,
     game: String,
     base_path: Option<&PathBuf>,
@@ -228,9 +245,7 @@ fn create_instance_command(
     ExitCode::SUCCESS
 }
 
-fn delete_instance_command(name: String, remove: bool, force: bool) -> ExitCode {
-    let mut config = ManagerConfig::load_or_create();
-
+fn delete_instance_command(config: &mut ManagerConfig, name: String, remove: bool, force: bool) -> ExitCode {
     let instance = match Instance::from_name(&name) {
         Ok(instance) => instance,
         Err(_) => {
@@ -322,7 +337,89 @@ fn delete_instance_command(name: String, remove: bool, force: bool) -> ExitCode 
     ExitCode::SUCCESS
 }
 
-fn cmd() -> Command {
+fn download_command(config: &mut ManagerConfig, plugin_man: &mut PluginManager, url: Url, instance: Option<String>, no_prompt: bool) -> ExitCode {
+    // Get instance
+    let instance: Instance = {
+        let instances = list_instances();
+        let name: String = match instance {
+            None => {
+                if !config.default_instance.is_empty() {
+                    config.default_instance.clone()
+                } else if no_prompt {
+                    println!("No default instance configured");
+                    return ExitCode::FAILURE
+                } else if false { // && atty::is(atty::Stream::Stdin) {
+                    let mut name = String::new();
+                    stdin().read_line(&mut name)
+                        .expect("Failed to get user input");
+                    if instances.contains(&name.trim().to_string()) {
+                        name
+                    } else {
+                        println!("Unknown instance: {name}");
+                        return ExitCode::FAILURE
+                    }
+                } else {
+                    notify_rust::Notification::new()
+                        .appname("Dat Mod Manager")
+                        .icon("dat-mod-manager")
+                        .summary("No instance specified or default instance configured");
+                    return ExitCode::FAILURE
+                }
+            }
+            Some(name) => name
+        };
+
+        match Instance::from_name(&name) {
+            Ok(instance) => instance,
+            Err(err) => {
+                println!("Failed to get instance, error: {err}");
+                return ExitCode::FAILURE
+            }
+        }
+    };
+
+    // Select downloader
+    let protocol = match url.scheme() {
+        "" => "http",
+        scheme => scheme
+    };
+    let downloaders = plugin_man.downloaders().get_downloaders_for_protocol(protocol);
+
+    if (downloaders.is_empty()) {
+        println!("Failed to find downloader for that protocol, is it supposed to be http?");
+        return ExitCode::FAILURE
+    }
+
+    let downloader = downloaders[0];
+
+    let style = ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {msg:!40} {bytes}/{total_bytes} [{binary_bytes_per_sec}] ({eta})")
+        .unwrap()
+        .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())
+        .progress_chars("#>-");
+    let pb = ProgressBar::new(100000);
+    pb.set_style(style);
+
+    let mut callback = |total: u64, progress: u64, file: String| {
+        // pb.set_length(total);
+        pb.set_position(progress);
+        pb.set_message(file);
+    };
+
+    // Download
+    let result = downloader.download(&url, instance.downloads_path(), &mut callback);
+
+    pb.finish_and_clear();
+
+    match result {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(err) => {
+            println!("{err}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn cmd(config: &ManagerConfig) -> Command {
     command!()
         .subcommand(
             Command::new("list-instances")
@@ -399,20 +496,21 @@ fn cmd() -> Command {
                     Arg::new("PROFILES_PATH")
                         .long("profiles-path")
                         .short('p')
-                        .value_parser(value_parser!(std::path::PathBuf))
                         .help("The directory in which profiles information is stored")
+                        .value_parser(value_parser!(std::path::PathBuf))
                         .value_hint(DirPath)
                 )
                 .arg(
                     Arg::new("DEFAULT")
                         .long("default")
                         .short('D')
-                        .action(ArgAction::SetTrue)
                         .help("Set the newly created profile as the default profile")
+                        .action(ArgAction::SetTrue)
                 )
         )
         .subcommand(
             Command::new("delete-instance")
+                .about("Delete an instance, optionally removing all it's content")
                 .arg(
                     Arg::new("NAME")
                         .allow_hyphen_values(true)
@@ -423,15 +521,40 @@ fn cmd() -> Command {
                     Arg::new("CLEAR")
                         .long("clear")
                         .short('c')
-                        .action(ArgAction::SetTrue)
                         .help("Remove this instances data (mods, downloads, etc)")
+                        .action(ArgAction::SetTrue)
                 )
                 .arg(
                     Arg::new("FORCE")
                         .long("force")
                         .short('f')
-                        .action(ArgAction::SetTrue)
                         .help("Skip the prompt double-checking you're sure you want to delete the profile")
+                        .action(ArgAction::SetTrue)
+                )
+        )
+        .subcommand(
+            Command::new("download")
+                .about("Download a mod")
+                .long_about("Download a mod using the given URL, uses the default instance if no instance is specified")
+                .arg(
+                    Arg::new("URL")
+                        .value_hint(ValueHint::Url)
+                        .help("The URL of the mod to download")
+                        .required(true)
+                        .value_parser(value_parser!(Url))
+                )
+                .arg(
+                    Arg::new("INSTANCE")
+                        .long("instance")
+                        .short('i')
+                        .help("Specify an instance to download the mod to")
+                )
+                .arg(
+                    Arg::new("NO-PROMPT")
+                        .long("no-prompt")
+                        .short('n')
+                        .help("Fail instead of prompting if no instance is set")
+                        .action(ArgAction::SetTrue)
                 )
         )
 }

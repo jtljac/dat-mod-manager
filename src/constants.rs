@@ -23,10 +23,6 @@ pub fn instance_dir() -> PathBuf {
     config_dir().join("instances/")
 }
 
-pub fn instance_data_dir() -> PathBuf {
-    data_dir().join("instances/")
-}
-
 pub fn data_dir() -> PathBuf {
     match ProjectDirs::from("com", ORGANISATION,NAME) {
         None => {
@@ -36,4 +32,12 @@ pub fn data_dir() -> PathBuf {
             return proj_dirs.data_dir().to_path_buf()
         }
     }
+}
+
+pub fn instance_data_dir() -> PathBuf {
+    data_dir().join("instances/")
+}
+
+pub fn plugins_dir() -> PathBuf {
+    data_dir().join("plugins/")
 }

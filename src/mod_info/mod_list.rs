@@ -2,7 +2,7 @@ use super::game_mod::ModTrait;
 
 type ModReference = Box<dyn ModTrait>;
 
-pub(crate) struct ModList {
+pub struct ModList {
     mods: Vec<ModReference>
 }
 
